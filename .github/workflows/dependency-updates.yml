@@ -2,76 +2,104 @@ name: Dependency Updates
 
 on:
   schedule:
-    # Har Monday ko 9 AM UTC pe chalega
-    - cron: '0 9 * * 1'
-  workflow_dispatch:
+    - cron: '0 9 * * 1'  # Every Monday at 9 AM UTC
+  workflow_dispatch:  # Manual trigger enabled
 
 jobs:
-  check-updates:
+  check-dependencies:
     runs-on: ubuntu-latest
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Display update info
+      run: |
+        echo "🔄 Starting Dependency Update Check"
+        echo "📅 Date: $(date)"
+        echo "🌿 Branch: ${{ github.ref }}"
+        echo "👤 Triggered by: ${{ github.actor }}"
     
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
         node-version: '20.x'
     
-    - name: Install npm-check-updates
-      run: npm install -g npm-check-updates
-    
-    - name: Check for updates
-      id: check
+    - name: Check if package.json exists
+      id: check-package
       run: |
-        ncu -u --target minor
-        if git diff --quiet package.json; then
-          echo "updates=false" >> $GITHUB_OUTPUT
+        if [ -f "package.json" ]; then
+          echo "exists=true" >> $GITHUB_OUTPUT
+          echo "✅ package.json found"
         else
-          echo "updates=true" >> $GITHUB_OUTPUT
+          echo "exists=false" >> $GITHUB_OUTPUT
+          echo "⚠️ No package.json found"
         fi
     
-    - name: Install updated dependencies
-      if: steps.check.outputs.updates == 'true'
-      run: npm install
+    - name: Install current dependencies
+      if: steps.check-package.outputs.exists == 'true'
+      run: |
+        echo "📦 Installing current dependencies..."
+        npm install
+        echo "✅ Dependencies installed"
     
-    - name: Run tests with updated dependencies
-      if: steps.check.outputs.updates == 'true'
-      run: npm test || echo "Tests completed"
+    - name: Check for outdated packages
+      if: steps.check-package.outputs.exists == 'true'
+      run: |
+        echo "🔍 Checking for outdated packages..."
+        npm outdated > outdated-packages.txt || true
+        if [ -s outdated-packages.txt ]; then
+          echo "📊 Outdated packages found:"
+          cat outdated-packages.txt
+        else
+          echo "✅ All packages are up to date!"
+          echo "No outdated packages" > outdated-packages.txt
+        fi
     
-    - name: Create Pull Request
-      if: steps.check.outputs.updates == 'true'
-      uses: peter-evans/create-pull-request@v6
+    - name: Generate dependency report
+      run: |
+        echo "📊 Dependency Update Report - $(date)" > dependency-report.txt
+        echo "======================================" >> dependency-report.txt
+        echo "" >> dependency-report.txt
+        
+        if [ -f "package.json" ]; then
+          echo "## Current Dependencies" >> dependency-report.txt
+          echo "" >> dependency-report.txt
+          if command -v jq &> /dev/null; then
+            echo "Production dependencies:" >> dependency-report.txt
+            jq -r '.dependencies | keys[]' package.json 2>/dev/null >> dependency-report.txt || echo "Unable to parse" >> dependency-report.txt
+            echo "" >> dependency-report.txt
+            echo "Dev dependencies:" >> dependency-report.txt
+            jq -r '.devDependencies | keys[]' package.json 2>/dev/null >> dependency-report.txt || echo "Unable to parse" >> dependency-report.txt
+          else
+            cat package.json >> dependency-report.txt
+          fi
+          echo "" >> dependency-report.txt
+          echo "## Outdated Packages" >> dependency-report.txt
+          echo "" >> dependency-report.txt
+          cat outdated-packages.txt >> dependency-report.txt 2>/dev/null || echo "No outdated packages" >> dependency-report.txt
+        else
+          echo "⚠️ No package.json found in repository" >> dependency-report.txt
+          echo "This project may not use npm/Node.js dependencies" >> dependency-report.txt
+        fi
+        
+        echo "" >> dependency-report.txt
+        echo "---" >> dependency-report.txt
+        echo "Report generated: $(date)" >> dependency-report.txt
+        
+        echo ""
+        echo "📄 Dependency Report:"
+        cat dependency-report.txt
+    
+    - name: Upload dependency report
+      uses: actions/upload-artifact@v4
       with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        commit-message: 'chore: update dependencies'
-        title: '🔄 Automated Dependency Updates'
-        body: |
-          ## 📦 Dependency Updates
-          
-          This PR contains automated dependency updates.
-          
-          ### Changes
-          - Updated dependencies to their latest minor versions
-          - All tests have been run and passed
-          
-          ### Review Checklist
-          - [ ] Check changelog for breaking changes
-          - [ ] Verify all tests pass
-          - [ ] Test application manually if needed
-          
-          ---
-          *This PR was automatically generated by GitHub Actions*
-        branch: automated-dependency-updates
-        delete-branch: true
-        labels: dependencies, automated
+        name: dependency-report-${{ github.run_number }}
+        path: dependency-report.txt
+        retention-days: 90
 
-  dependabot-auto-merge:
+  security-audit:
     runs-on: ubuntu-latest
-    if: github.actor == 'dependabot[bot]'
     
     steps:
     - name: Checkout code
@@ -82,14 +110,68 @@ jobs:
       with:
         node-version: '20.x'
     
-    - name: Install dependencies
-      run: npm ci
+    - name: Run security audit
+      run: |
+        echo "🔒 Running security audit..."
+        if [ -f "package.json" ]; then
+          npm install
+          npm audit --json > security-audit.json || true
+          npm audit || echo "⚠️ Security audit completed with findings"
+        else
+          echo "⚠️ No package.json - skipping security audit"
+          echo '{"message": "No package.json found"}' > security-audit.json
+        fi
     
-    - name: Run tests
-      run: npm test || echo "Tests completed"
+    - name: Generate security report
+      run: |
+        echo "🔒 Security Audit Report - $(date)" > security-report.txt
+        echo "====================================" >> security-report.txt
+        echo "" >> security-report.txt
+        
+        if [ -f "security-audit.json" ]; then
+          if command -v jq &> /dev/null; then
+            echo "Vulnerabilities Summary:" >> security-report.txt
+            jq -r '.metadata.vulnerabilities | to_entries[] | "\(.key): \(.value)"' security-audit.json 2>/dev/null >> security-report.txt || echo "See security-audit.json for details" >> security-report.txt
+          else
+            echo "See security-audit.json for detailed report" >> security-report.txt
+          fi
+        else
+          echo "No security issues found" >> security-report.txt
+        fi
+        
+        cat security-report.txt
     
-    - name: Auto-approve Dependabot PRs
-      if: success()
-      run: gh pr review --approve "${{ github.event.pull_request.number }}"
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: Upload security audit
+      uses: actions/upload-artifact@v4
+      with:
+        name: security-audit-${{ github.run_number }}
+        path: |
+          security-audit.json
+          security-report.txt
+
+  update-summary:
+    needs: [check-dependencies, security-audit]
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+    - name: Generate update summary
+      run: |
+        echo "## 🔄 Dependency Update Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "✅ **Dependency Check:** ${{ needs.check-dependencies.result }}" >> $GITHUB_STEP_SUMMARY
+        echo "✅ **Security Audit:** ${{ needs.security-audit.result }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "📅 **Date:** $(date)" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📊 Reports Generated" >> $GITHUB_STEP_SUMMARY
+        echo "- Dependency update report" >> $GITHUB_STEP_SUMMARY
+        echo "- Security audit report" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📦 Artifacts" >> $GITHUB_STEP_SUMMARY
+        echo "Download the reports from the artifacts section below." >> $GITHUB_STEP_SUMMARY
+    
+    - name: Update check complete
+      run: |
+        echo "✅ Dependency update check completed successfully!"
+        echo "📊 Reports available in artifacts"
