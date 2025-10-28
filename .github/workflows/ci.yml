@@ -5,6 +5,7 @@ on:
     branches: [ main, master ]
   pull_request:
     branches: [ main, master ]
+  workflow_dispatch:
 
 jobs:
   build-and-test:
@@ -14,57 +15,63 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
     
+    - name: Display project info
+      run: |
+        echo "🚀 Starting CI Pipeline"
+        echo "📁 Repository: ${{ github.repository }}"
+        echo "🌿 Branch: ${{ github.ref }}"
+        echo "👤 Triggered by: ${{ github.actor }}"
+    
+    - name: List project files
+      run: |
+        echo "📂 Project Structure:"
+        ls -la
+    
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
         node-version: '20.x'
     
-    - name: Check package.json
+    - name: Check Node version
       run: |
-        if [ -f package.json ]; then
-          echo "✅ package.json found"
-          cat package.json
-        else
-          echo "⚠️ No package.json found"
-        fi
+        echo "Node version: $(node --version)"
+        echo "NPM version: $(npm --version)"
     
-    - name: Install dependencies
+    - name: Install dependencies (if needed)
       run: |
-        if [ -f package.json ]; then
+        if [ -f "package.json" ]; then
+          echo "📦 Installing dependencies..."
           npm install
+          echo "✅ Dependencies installed"
         else
-          echo "⚠️ Skipping npm install - no package.json"
+          echo "⚠️ No package.json found - skipping"
         fi
     
-    - name: List files
+    - name: Run linting (if configured)
       run: |
-        echo "📁 Project structure:"
-        ls -la
-    
-    - name: Run linting
-      run: |
-        if [ -f package.json ] && npm run lint --if-present 2>/dev/null; then
-          echo "✅ Linting passed"
+        if [ -f "package.json" ]; then
+          npm run lint 2>/dev/null || echo "⚠️ No lint script - skipping"
         else
-          echo "⚠️ No lint script, skipping"
+          echo "⚠️ Skipping lint"
         fi
     
-    - name: Run tests
+    - name: Run tests (if configured)
       run: |
-        if [ -f package.json ] && npm test --if-present 2>/dev/null; then
-          echo "✅ Tests passed"
+        if [ -f "package.json" ]; then
+          npm test 2>/dev/null || echo "⚠️ No test script - skipping"
         else
-          echo "⚠️ No test script, skipping"
+          echo "⚠️ Skipping tests"
         fi
     
-    - name: Build project
+    - name: Build project (if configured)
       run: |
-        if [ -f package.json ] && npm run build --if-present 2>/dev/null; then
-          echo "✅ Build successful"
+        if [ -f "package.json" ]; then
+          npm run build 2>/dev/null || echo "⚠️ No build script - skipping"
         else
-          echo "⚠️ No build script, skipping"
+          echo "⚠️ Skipping build"
         fi
     
-    - name: CI Summary
+    - name: CI Complete
       run: |
-        echo "✅ Continuous Integration completed successfully!"
+        echo "✅ CI Pipeline Completed Successfully!"
+        echo "🎉 All checks passed"

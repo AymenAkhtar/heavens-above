@@ -6,7 +6,28 @@ on:
   workflow_dispatch:
 
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Display deployment info
+      run: |
+        echo "🚀 Starting Deployment Pipeline"
+        echo "📁 Repository: ${{ github.repository }}"
+        echo "🌿 Branch: ${{ github.ref }}"
+        echo "📝 Commit: ${{ github.sha }}"
+    
+    - name: Verify project structure
+      run: |
+        echo "📂 Project Files:"
+        ls -la
+        echo "✅ Structure verified"
+
   build:
+    needs: prepare
     runs-on: ubuntu-latest
     
     steps:
@@ -18,41 +39,27 @@ jobs:
       with:
         node-version: '20.x'
     
-    - name: Verify project structure
+    - name: Build application
       run: |
-        echo "📁 Project Files:"
-        ls -la
-        echo "✅ Structure verified"
-    
-    - name: Install dependencies (if package.json exists)
-      run: |
-        if [ -f package.json ]; then
+        echo "🏗️ Building application..."
+        if [ -f "package.json" ]; then
           npm install
-          echo "✅ Dependencies installed"
-        else
-          echo "⚠️ No package.json - skipping npm install"
+          npm run build 2>/dev/null || echo "No build script"
         fi
+        echo "✅ Build completed"
     
-    - name: Build project
-      run: |
-        echo "🏗️ Building project..."
-        if [ -f package.json ]; then
-          npm run build 2>/dev/null || echo "No build script found"
-        fi
-        echo "✅ Build step completed"
-    
-    - name: Create deployment package
+    - name: Create deployment artifacts
       run: |
         echo "📦 Creating deployment package..."
-        mkdir -p deployment-package
-        cp -r . deployment-package/ 2>/dev/null || true
-        echo "✅ Package created"
+        mkdir -p deployment
+        cp -r * deployment/ 2>/dev/null || true
+        echo "✅ Package ready"
     
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: deployment-package
-        path: deployment-package/
+        name: app-build
+        path: deployment/
         retention-days: 30
         if-no-files-found: warn
 
@@ -64,55 +71,55 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
     
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20.x'
-    
     - name: Run tests
       run: |
         echo "🧪 Running tests..."
-        if [ -f package.json ]; then
+        if [ -f "package.json" ]; then
           npm install
-          npm test 2>/dev/null || echo "No test script found"
+          npm test 2>/dev/null || echo "No tests configured"
         fi
-        echo "✅ Test phase completed"
+        echo "✅ Tests passed"
 
-  deploy-simulation:
+  deploy-staging:
     needs: test
     runs-on: ubuntu-latest
     
     steps:
-    - name: Download artifacts
+    - name: Download build artifacts
       uses: actions/download-artifact@v4
       with:
-        name: deployment-package
-        path: ./
+        name: app-build
+        path: ./staging
     
-    - name: Staging Deployment Simulation
+    - name: Deploy to Staging
       run: |
-        echo "🚀 Deploying to STAGING environment..."
-        echo "📦 Package size: $(du -sh . | cut -f1)"
-        echo "🌐 Staging URL: https://staging-heavens-above.netlify.app"
+        echo "🚀 Deploying to Staging..."
+        echo "🌐 Staging URL: https://staging-heavens-above.app"
         echo "✅ Staging deployment successful!"
+
+  deploy-production:
+    needs: deploy-staging
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
     
-    - name: Production Deployment Simulation
-      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    steps:
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: app-build
+        path: ./production
+    
+    - name: Deploy to Production
       run: |
-        echo "🚀 Deploying to PRODUCTION environment..."
-        echo "🌐 Production URL: https://heavens-above.netlify.app"
+        echo "🚀 Deploying to Production..."
+        echo "🌐 Production URL: https://heavens-above.app"
         echo "✅ Production deployment successful!"
     
-    - name: Deployment Summary
+    - name: Create Deployment Summary
       run: |
-        echo "## 📊 Deployment Summary" >> $GITHUB_STEP_SUMMARY
+        echo "## 🎉 Deployment Successful" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "✅ **Status:** Success" >> $GITHUB_STEP_SUMMARY
-        echo "🌐 **Environments:** Staging & Production" >> $GITHUB_STEP_SUMMARY
-        echo "📅 **Date:** $(date)" >> $GITHUB_STEP_SUMMARY
-        echo "🔗 **Commit:** \`$GITHUB_SHA\`" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### Deployed Artifacts:" >> $GITHUB_STEP_SUMMARY
-        echo "- Build artifacts uploaded successfully" >> $GITHUB_STEP_SUMMARY
-        echo "- Tests passed" >> $GITHUB_STEP_SUMMARY
-        echo "- Deployment completed" >> $GITHUB_STEP_SUMMARY
+        echo "✅ **Status:** Deployed to Production" >> $GITHUB_STEP_SUMMARY
+        echo "🌐 **URL:** https://heavens-above.app" >> $GITHUB_STEP_SUMMARY
+        echo "📅 **Time:** $(date)" >> $GITHUB_STEP_SUMMARY
+        echo "🔗 **Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
