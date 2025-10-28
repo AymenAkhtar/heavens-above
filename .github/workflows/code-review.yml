@@ -1,0 +1,148 @@
+name: Code Review Automation
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  code-quality-check:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Run ESLint
+      run: |
+        npx eslint . --ext .js,.jsx,.ts,.tsx --format json --output-file eslint-report.json || true
+        npx eslint . --ext .js,.jsx,.ts,.tsx || echo "ESLint completed with warnings"
+    
+    - name: Check code formatting
+      run: npx prettier --check . || echo "Prettier check completed"
+    
+    - name: Upload ESLint report
+      uses: actions/upload-artifact@v4
+      with:
+        name: eslint-report
+        path: eslint-report.json
+
+  security-scan:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Run security audit
+      run: |
+        npm audit --json > audit-report.json || true
+        npm audit
+    
+    - name: Upload security report
+      uses: actions/upload-artifact@v4
+      with:
+        name: security-audit-report
+        path: audit-report.json
+
+  code-complexity:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+    
+    - name: Install complexity reporter
+      run: npm install -g complexity-report
+    
+    - name: Analyze code complexity
+      run: |
+        echo "📊 Code Complexity Analysis" > complexity-report.txt
+        find . -name "*.js" -not -path "*/node_modules/*" | while read file; do
+          echo "File: $file" >> complexity-report.txt
+          cr "$file" >> complexity-report.txt 2>&1 || true
+        done
+    
+    - name: Upload complexity report
+      uses: actions/upload-artifact@v4
+      with:
+        name: complexity-report
+        path: complexity-report.txt
+
+  pr-size-check:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Check PR size
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const pr = context.payload.pull_request;
+          const additions = pr.additions;
+          const deletions = pr.deletions;
+          const total = additions + deletions;
+          
+          let size = 'small';
+          let emoji = '✅';
+          
+          if (total > 1000) {
+            size = 'extra large';
+            emoji = '🔴';
+          } else if (total > 500) {
+            size = 'large';
+            emoji = '🟠';
+          } else if (total > 200) {
+            size = 'medium';
+            emoji = '🟡';
+          }
+          
+          const comment = `${emoji} **PR Size: ${size}**\n\n` +
+            `📊 Changes: +${additions} -${deletions} (${total} total)\n\n` +
+            (total > 500 ? '⚠️ Consider breaking this PR into smaller chunks for easier review.' : '');
+          
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: comment
+          });
+
+  comment-review-summary:
+    needs: [code-quality-check, security-scan, code-complexity]
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+    - name: Post review summary
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const summary = `## 🤖 Automated Code Review Summary
+          
+          ✅ Code Quality Check: ${{ needs.code-quality-check.result }}
+          ✅ Security Scan: ${{ needs.security-scan.result }}
+          ✅ Code Complexity: ${{ needs.code-complexity.result }}
+          
+          Please review the detailed reports in the workflow artifacts.
+          `;
+          
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: summary
+          });

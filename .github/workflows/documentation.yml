@@ -1,0 +1,112 @@
+name: Documentation Deployment
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'docs/**'
+      - 'README.md'
+      - '*.md'
+  workflow_dispatch:
+
+jobs:
+  build-docs:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+    
+    - name: Create docs directory if not exists
+      run: mkdir -p docs
+    
+    - name: Generate documentation
+      run: |
+        echo "# Heavens Above - Documentation" > docs/index.md
+        echo "" >> docs/index.md
+        echo "Generated on: $(date)" >> docs/index.md
+        echo "" >> docs/index.md
+        cat README.md >> docs/index.md
+    
+    - name: Setup Python for MkDocs
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.x'
+    
+    - name: Install MkDocs
+      run: |
+        pip install mkdocs mkdocs-material
+    
+    - name: Create mkdocs.yml if not exists
+      run: |
+        if [ ! -f mkdocs.yml ]; then
+          cat > mkdocs.yml << EOF
+        site_name: Heavens Above Documentation
+        site_description: Task and Project Management Application
+        site_author: XYZ Corp
+        theme:
+          name: material
+          palette:
+            primary: indigo
+            accent: indigo
+          features:
+            - navigation.tabs
+            - navigation.sections
+            - toc.integrate
+        
+        nav:
+          - Home: index.md
+        
+        markdown_extensions:
+          - admonition
+          - codehilite
+          - toc:
+              permalink: true
+        EOF
+        fi
+    
+    - name: Build documentation
+      run: mkdocs build
+    
+    - name: Upload documentation artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: documentation
+        path: site/
+        retention-days: 30
+
+  deploy-docs:
+    needs: build-docs
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Download documentation
+      uses: actions/download-artifact@v4
+      with:
+        name: documentation
+        path: site/
+    
+    - name: Deploy to GitHub Pages
+      uses: peaceiris/actions-gh-pages@v3
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./site
+        publish_branch: gh-pages
+        commit_message: 'docs: deploy documentation ${{ github.sha }}'
+    
+    - name: Create deployment summary
+      run: |
+        echo "📚 Documentation deployed successfully!"
+        echo "🌐 URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/"
